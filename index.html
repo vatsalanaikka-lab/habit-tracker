@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Habit Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
     --green: #1D9E75;
@@ -182,6 +183,77 @@
     text-align: center;
   }
   .reset-btn:active { background: var(--border); }
+
+  .weight-section {
+    padding: 16px;
+    margin-top: 8px;
+  }
+  .weight-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .weight-header h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .weight-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .weight-input-row input {
+    flex: 1;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--text);
+    font-size: 16px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  .weight-input-row input:focus { border-color: var(--green); }
+  .weight-input-row button {
+    padding: 12px 18px;
+    background: var(--green);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .weight-input-row button:active { background: var(--green-dark); }
+  .chart-wrap {
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    padding: 16px 12px 12px;
+    position: relative;
+  }
+  .chart-empty {
+    text-align: center;
+    padding: 32px 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .weight-latest {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .weight-latest .val { font-size: 28px; font-weight: 600; color: var(--green); }
+  .weight-latest .unit { font-size: 14px; color: var(--muted); }
+  .weight-latest .change { font-size: 13px; margin-left: 4px; }
+  .change.down { color: var(--green); }
+  .change.up { color: #E24B4A; }
+  canvas#weightChart { width: 100% !important; }
 </style>
 </head>
 <body>
@@ -217,6 +289,21 @@
 </div>
 
 <button class="reset-btn" onclick="resetWeek()">Reset this week</button>
+
+<div class="weight-section">
+  <div class="weight-header">
+    <h2>Weight</h2>
+  </div>
+  <div id="weight-latest-wrap"></div>
+  <div class="weight-input-row">
+    <input type="number" id="weight-input" placeholder="Enter weight (kg)" step="0.1" min="20" max="300">
+    <button onclick="logWeight()">Log</button>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-empty" id="chart-empty">No weight entries yet. Log your first one above.</div>
+    <canvas id="weightChart" height="180" style="display:none"></canvas>
+  </div>
+</div>
 
 <script>
 const HABITS = [
@@ -340,6 +427,117 @@ function changeWeek(dir) {
   selectedDay = 0;
   render();
 }
+
+render();
+
+const WEIGHT_KEY = 'weight_log_v1';
+let weightChart = null;
+
+function loadWeights() {
+  try { return JSON.parse(localStorage.getItem(WEIGHT_KEY)) || []; }
+  catch { return []; }
+}
+
+function saveWeights(arr) {
+  try { localStorage.setItem(WEIGHT_KEY, JSON.stringify(arr)); }
+  catch {}
+}
+
+function logWeight() {
+  const input = document.getElementById('weight-input');
+  const val = parseFloat(input.value);
+  if (isNaN(val) || val < 20 || val > 300) return;
+  const entries = loadWeights();
+  const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const existing = entries.findIndex(e => e.date === today);
+  if (existing >= 0) entries[existing].weight = val;
+  else entries.push({ date: today, weight: val });
+  saveWeights(entries);
+  input.value = '';
+  renderWeightChart();
+}
+
+function renderWeightChart() {
+  const entries = loadWeights();
+  const empty = document.getElementById('chart-empty');
+  const canvas = document.getElementById('weightChart');
+  const latestWrap = document.getElementById('weight-latest-wrap');
+
+  if (entries.length === 0) {
+    empty.style.display = 'block';
+    canvas.style.display = 'none';
+    latestWrap.innerHTML = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  canvas.style.display = 'block';
+
+  const latest = entries[entries.length - 1].weight;
+  const prev = entries.length > 1 ? entries[entries.length - 2].weight : null;
+  let changeHtml = '';
+  if (prev !== null) {
+    const diff = (latest - prev).toFixed(1);
+    const cls = diff <= 0 ? 'down' : 'up';
+    const arrow = diff <= 0 ? '▼' : '▲';
+    changeHtml = `<span class="change ${cls}">${arrow} ${Math.abs(diff)} kg</span>`;
+  }
+  latestWrap.innerHTML = `<div class="weight-latest"><span class="val">${latest.toFixed(1)}</span><span class="unit">kg</span>${changeHtml}</div>`;
+
+  const labels = entries.map(e => e.date);
+  const data = entries.map(e => e.weight);
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#9ca3af' : '#6b7280';
+
+  if (weightChart) {
+    weightChart.data.labels = labels;
+    weightChart.data.datasets[0].data = data;
+    weightChart.update();
+    return;
+  }
+
+  weightChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#1D9E75',
+        backgroundColor: 'rgba(29,158,117,0.08)',
+        borderWidth: 2,
+        pointBackgroundColor: '#1D9E75',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y.toFixed(1) + ' kg'
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor, font: { size: 11 }, maxRotation: 0 },
+          grid: { color: gridColor }
+        },
+        y: {
+          ticks: { color: textColor, font: { size: 11 }, callback: v => v.toFixed(1) },
+          grid: { color: gridColor }
+        }
+      }
+    }
+  });
+}
+
+renderWeightChart();
 
 function resetWeek() {
   if (confirm('Reset all ticks for this week?')) {
