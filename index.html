@@ -318,6 +318,7 @@ const DAY_NAMES_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Frid
 
 let weekOffset = 0;
 let selectedDay = 0;
+let initialDaySet = false;
 
 function getMonday(offset) {
   const today = new Date();
@@ -358,8 +359,9 @@ function render() {
   today.setHours(0,0,0,0);
   const todayIdx = Math.floor((today - mon) / 86400000);
 
-  if (weekOffset === 0 && todayIdx >= 0 && todayIdx <= 6 && selectedDay === 0) {
+  if (!initialDaySet && weekOffset === 0 && todayIdx >= 0 && todayIdx <= 6) {
     selectedDay = todayIdx;
+    initialDaySet = true;
   }
 
   const state = loadState();
@@ -425,6 +427,7 @@ function render() {
 function changeWeek(dir) {
   weekOffset += dir;
   selectedDay = 0;
+  initialDaySet = true;
   render();
 }
 
